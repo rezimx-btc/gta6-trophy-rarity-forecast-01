@@ -1,77 +1,25 @@
-# GTA VI Trophy Rarity Forecast — count-consistent dilution forecaster
+# GTA VI Trophy Rarity Forecast — Week One
 
-Entry for the make.fun bounty **"Forecast how many GTA VI players earn each
-trophy in week one"** (`gta6-trophy-rarity-forecast-01`). One program,
-`main.ts` (Node 22, standard library only, no network, deterministic),
-forecasts every PlayStation 5 trophy's earn rate on Exophase at
-2026-11-26T00:00:00Z: five quantiles (5%, 25%, 50%, 75%, 95%) per trophy.
+[![make.fun · gta6-trophy-rarity-forecast-01](https://make.fun/badge/gta6-trophy-rarity-forecast-01.svg)](https://make.fun/bounty/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
+[![rank](https://make.fun/badge/gta6-trophy-rarity-forecast-01/rezimx-btc/gta6-trophy-rarity-forecast-01/rank.svg)](https://make.fun/bounty/gta6-trophy-rarity-forecast-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
+[![reward](https://make.fun/badge/gta6-trophy-rarity-forecast-01/rezimx-btc/gta6-trophy-rarity-forecast-01/reward.svg)](https://make.fun/bounty/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
 
-## The idea
+A count-consistent dilution forecaster for the make.fun bounty [Forecast how many GTA VI players earn each trophy in week one](https://make.fun/bounty/gta6-trophy-rarity-forecast-01).
 
-Exophase prints each trophy's earn rate as a percent of the players it
-tracks, and it refreshes those counts on its own schedule — not with every
-player's trophy. A refresh that tracks many new players dilutes every rate
-down, because the denominator grows faster than the earners. On launch
-night the house's own record shows exactly that: the page sat unchanged
-(638 players tracked, every rate the same) from 23:48 UTC to 04:00 UTC,
-then refreshed at 04:30 UTC to 3,868 players tracked with every rate but
-the one at 100% lower than before.
+It predicts, for every one of the 55 PlayStation 5 trophies of Grand Theft Auto VI, its earn rate on Exophase one week after launch, at 2026-11-26T00:00:00Z. For each trophy it outputs five quantiles (5%, 25%, 50%, 75%, 95%) of the earn rate at the target.
 
-So this program forecasts **counts, not rates**:
+## Method
 
-1. For each trophy it recovers earners from every read,
-   `E = rate x players_tracked / 100`.
-2. It fits a least-squares line to `ln E` and to `ln players_tracked`
-   against `x = ln(1 + hours since 2026-11-19T00:00:00Z)` (log-time, so
-   growth saturates instead of exploding), using the last 24 hours of
-   reads when that window holds at least 3 reads, otherwise the whole
-   history.
-3. It reads both lines at the target and takes the rate as
-   `earners / players` — count-consistent by construction: a rate can
-   never exceed 100%, and dilution from player growth is modelled, not
-   assumed away.
-4. A direct least-squares line to the logit rate in the same `x` is
-   blended in half-and-half in logit space, as a guard against either
-   count line extrapolating badly. Forecast players are capped at 50x
-   the last read, and earners are capped at players.
+The forecast is built on counts, not on rates alone. For each trophy, the number of earners is recovered as the earn rate times the players tracked. Least-squares lines are then fitted to log earners and log players against log-time — ln(1 + hours since 2026-11-19T00:00:00Z) — and both lines are read at the target. The forecasted rate is earners over players, so the forecast is count-consistent by construction and it models the dilution that happens when Exophase refreshes its counts and the player denominator grows faster than the earners.
 
-## The spread
-
-Quantiles are normal quantiles on the logit scale around the median, with
-a spread that combines three honest sources of uncertainty:
-
-- a random walk with horizon, `0.5 x sqrt(days)` (the house baseline's
-  own coefficient);
-- the logit fit's residual, so a trophy whose history wobbles gets a
-  wider band;
-- a refresh shock. When the whole history shows a frozen display
-  (players tracked never changes), the next refresh is overdue and large,
-  so the spread widens by 1.2 logit and the median shifts down by 0.9
-  logit to anticipate dilution. When reads do move, only a 0.3 background
-  term applies. The frozen constants were picked by a sensitivity check
-  over refresh scenarios built from the rules' own launch-night numbers
-  (players 638 to 3,868, earners growth 1x to 3x): the chosen pair beats
-  the house baseline in every refresh scenario while keeping 98% band
-  coverage, and it only ever applies to a frozen display — the final
-  case's history moves, so it does not touch the final forecast.
-
-A forecast that is too narrow pays for every trophy outside it, one too
-wide pays at every trophy — the spread above is sized to the refresh the
-rules describe, not fitted to any answer (the kit carries no practice
-answers).
+The spread on the logit scale combines three parts: a random-walk widening with the horizon, the residual of the fit, and extra widening for a refresh event not yet seen. A direct logit-rate line is blended in as a safeguard, so a trophy with a thin history still gets a sane forecast.
 
 ## Running it
 
-From the kit directory, on the practice cases:
+The program is `main.ts` at the repository root. It runs on Node 22, uses only the standard library, and makes no network requests. Point it at the case files with `MAKEFUN_INPUT_DIR` and at an output directory with `MAKEFUN_OUTPUT_DIR`:
 
-```
-mkdir -p out
-MAKEFUN_INPUT_DIR=input MAKEFUN_OUTPUT_DIR=out node <repo>/main.ts
+```sh
+MAKEFUN_INPUT_DIR=input MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
 
-Each `*.in` in the input directory produces one `<id>.out` in the output
-directory: exactly `{"trophies": [{"id": n, "q": [q05, q25, q50, q75,
-q95]}]}`, one row per trophy, five non-decreasing quantiles in [0, 100],
-under 65,536 bytes. Two runs on the same case are byte-identical: there
-is no randomness, no clock and no network in the program, and it finishes
-in well under the 8-second limit.
+It reads every `*.in` file in the input directory and writes one `.out` file per case. Each run is deterministic — two runs produce byte-identical output — and each run takes well under the 8-second limit.
